@@ -1,0 +1,11 @@
+moving_image: data/preprocessed/sample_moving.nii.gz
+fixed_image: data/preprocessed/sample_fixed.nii.gz
+output_dir: outputs/registered_atlas
+strategy: rigid
+seed: 42
+stage: rigid
+metric: mattes_mutual_information
+levels: 3
+iterations: [1000, 500, 200]
+shrink_factors: [4, 2, 1]
+smoothing_sigmas: [2, 1, 0]

@@ -1,0 +1,9 @@
+input_nifti_dir: data/nifti
+output_nifti_dir: data/preprocessed
+seed: 42
+hu_min: -200
+hu_max: 1000
+target_spacing: [1.0, 1.0, 1.0]
+roi_margin: 8
+augmentation:
+  enabled: false

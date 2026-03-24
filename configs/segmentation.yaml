@@ -1,0 +1,9 @@
+model_name: unet
+seed: 42
+epochs: 5
+batch_size: 1
+learning_rate: 0.0001
+ct_image: data/preprocessed/sample_fixed.nii.gz
+calcium_mask: data/masks/sample_calcium_mask.nii.gz
+centerline_mask: outputs/centerlines_warped/sample_centerline_mask.nii.gz
+threshold_mm: 10.0

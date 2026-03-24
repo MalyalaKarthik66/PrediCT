@@ -1,0 +1,23 @@
+name: predict-cac
+channels:
+  - conda-forge
+  - pytorch
+dependencies:
+  - python>=3.10
+  - pytorch
+  - monai
+  - numpy
+  - scipy
+  - pandas
+  - scikit-learn
+  - simpleitk
+  - antspyx
+  - pydicom
+  - nibabel
+  - matplotlib
+  - seaborn
+  - tqdm
+  - opencv
+  - pyyaml
+  - pytest
+  - pip
