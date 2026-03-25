@@ -38,7 +38,7 @@ flowchart LR
    - optional augmentation hook
 4. Register atlas/centerlines to patient scans using **rigid initialization followed by affine refinement, with a lightweight retry mechanism for failed cases**. The retry mechanism automatically re-registers scans with optimized parameters if the initial attempt yields poor alignment quality (<30% alignment).
 5. Compute validation metrics: mean/median distance and percentage of calcium voxels within `10mm` of transformed centerlines.
-6. Save plots to `outputs/plots/` and metrics to `experiments/metrics.json` and `outputs/validation_metrics.json`.
+6. Save run metrics to `experiments/registration_comparison.csv` and `experiments/registration_comparison_summary.csv`, and documentation figures to `docs/images/`.
 
 ## Repository Layout
 
@@ -154,44 +154,47 @@ Expected demo artifacts:
 - `data/preprocessed/sample_moving.nii.gz`
 - `data/masks/sample_calcium_mask.nii.gz`
 - `outputs/centerlines_warped/sample_centerline_mask.nii.gz`
-- `outputs/plots/ct_calcium_overlay.png`
-- `outputs/plots/centerline_overlay.png`
-- `outputs/plots/distance_histogram.png`
-- `experiments/metrics.json`
+- `docs/images/within_10mm_by_seed.png`
+- `docs/images/mean_distance_by_seed.png`
+- `docs/images/runtime_by_seed.png`
+- `experiments/registration_comparison.csv`
+- `experiments/registration_comparison_summary.csv`
 
 ## Example Outputs
 
-### CT + Calcium Overlay
+### Percent Within 10mm by Seed (42–66)
 
-![CT calcium overlay](outputs/plots/ct_calcium_overlay.png)
+![Percent within 10mm by seed](docs/images/within_10mm_by_seed.png)
 
-### CT + Centerline Overlay
+### Mean Distance by Seed (42–66)
 
-![Centerline overlay](outputs/plots/centerline_overlay.png)
+![Mean distance by seed](docs/images/mean_distance_by_seed.png)
 
-### Distance Histogram
+### Runtime by Seed (42–66)
 
-![Distance histogram](outputs/plots/distance_histogram.png)
+![Runtime by seed](docs/images/runtime_by_seed.png)
 
-## Demo Results Table
+## Latest Registration Results (Seeds 42–66)
 
-Metrics below are populated from `experiments/metrics.json` after running the demo pipeline.
+Metrics below are populated from `experiments/registration_comparison_summary.csv`.
 
 | Metric | Value |
 |---|---:|
-| Mean distance | 5.0388 mm |
-| Median distance | 2.4495 mm |
-| Percent within 10mm | 79.32% |
+| Mean distance (mean across seeds) | 6.8625 mm |
+| Mean distance (median across seeds) | 6.5412 mm |
+| Percent within 10mm (mean) | 74.73% |
+| Percent within 10mm (median) | 74.31% |
+| Runtime per scan (mean) | 2.1988 sec |
 
 ## Registration Accuracy and Stability
 
-We use a rigid initialization followed by affine refinement.
+We use a rigid initialization followed by affine refinement, with a lightweight retry mechanism for failed cases.
 
 Observed synthetic evaluation metrics remain stable across seed sweeps, with runtime and proximity metrics written to `experiments/registration_comparison.csv` and `experiments/registration_comparison_summary.csv`.
 
-| Registration Strategy | Runtime/scan | Mean Distance (mm) | %Within10mm |
+| Registration Strategy | Runtime/scan (mean) | Mean Distance (mm, mean) | %Within10mm (mean) |
 |---|---:|---:|---:|
-| Rigid + Affine (`rigid_affine`) | Seed-dependent | Seed-dependent | Seed-dependent |
+| Rigid + Affine (`rigid_affine`) | 2.1988 | 6.8625 | 74.73 |
 
 The pipeline reports fresh per-seed metrics and an aggregate summary for this single strategy to track both alignment quality and runtime consistency.
 
