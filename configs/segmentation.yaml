@@ -1,9 +1,51 @@
 model_name: unet
 seed: 42
 epochs: 5
-batch_size: 1
 learning_rate: 0.0001
+prefer_cuda: true
+
 ct_image: data/preprocessed/sample_fixed.nii.gz
 calcium_mask: data/masks/sample_calcium_mask.nii.gz
 centerline_mask: outputs/centerlines_warped/sample_centerline_mask.nii.gz
 threshold_mm: 10.0
+
+data:
+  image_dir: data/preprocessed
+  mask_dir: data/masks
+  metadata_csv: data/metadata.csv
+
+split:
+  seed: 42
+  train: 0.70
+  val: 0.15
+  test: 0.15
+
+loader:
+  batch_size: 1
+  num_workers: 0
+  cache_rate: 1.0
+  patch_size: [64, 64, 32]
+  positive_patch_probability: 0.8
+  val_positive_patch_probability: 0.5
+
+training:
+  max_train_batches: 3
+
+augmentations:
+  enabled: true
+  random_affine_prob: 0.7
+  rotation_deg: 15.0
+  scale_range: 0.10
+  elastic:
+    enabled: true
+    prob: 0.2
+    sigma_range: [4.0, 6.0]
+    magnitude_range: [50.0, 100.0]
+  gaussian_noise:
+    enabled: true
+    prob: 0.2
+    std: 0.01
+  random_gamma:
+    enabled: true
+    prob: 0.2
+    gamma_range: [0.7, 1.5]

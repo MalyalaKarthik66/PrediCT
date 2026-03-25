@@ -1,78 +1,109 @@
 # PrediCT CAC Prototype
 
-Building and comparing segmentation strategies for Coronary Artery Calcium (CAC) in the ML4SCI PrediCT project.
+Building and comparing segmentation strategies for **Coronary Artery Calcium (CAC)** in the **ML4SCI PrediCT** project.
 
-This repository now includes a modular, research-grade pipeline that extends existing COCA scripts and adds a clean package structure for ingestion, preprocessing, atlas registration, validation metrics, and Agatston scoring.
+This branch implements a **modular, research‑grade pipeline** for:
 
-## Pipeline Diagram
+- COCA dataset ingestion and preprocessing  
+- atlas‑based registration with ImageCAS  
+- calcium–centerline proximity evaluation  
+- segmentation‑oriented data pipeline (splits, patch sampling, MONAI loaders)  
+- Agatston scoring and future segmentation experiments
 
-```mermaid
-flowchart LR
-	A[DICOM] --> B[NIfTI]
-	B --> C[Preprocessing]
-	C --> D[Atlas Registration]
-	D --> E[Centerline Transform]
-	E --> F[Distance Metrics]
-	F --> G[Visualization]
-```
+Repository: `MalyalaKarthik66/PrediCT` → branch `gsoc-predict-cac-prototype`.
 
-## Simple Architecture Diagram
+---
+
+## High‑Level Pipeline
 
 ```mermaid
 flowchart LR
-	A[DICOM] --> B[Preprocessing]
-	B --> C[Registration]
-	C --> D[Evaluation]
-	D --> E[Visualization]
+    A[DICOM (COCA)] --> B[NIfTI conversion]
+    B --> C[Preprocessing<br/>clip / normalize / resample / augment]
+    C --> D[Atlas Registration<br/>ImageCAS → NCCT]
+    D --> E[Centerline Transform<br/>+ Vessel Zones]
+    E --> F[Distance Metrics<br/>KD-tree]
+    F --> G[Visualization<br/>plots + overlays]
 ```
 
-## Pipeline Overview
+### Package Architecture
 
-1. Ingest COCA DICOM scans and convert them to NIfTI (`data/nifti/`).
-2. Build metadata (patient ID, slice thickness, spacing, scan size).
-3. Preprocess CT volumes:
-   - HU clipping (`-200` to `1000`)
-   - z-score normalization
-   - isotropic resampling (`1mm`)
-   - cardiac ROI cropping
-   - optional augmentation hook
-4. Register atlas/centerlines to patient scans using **rigid initialization followed by affine refinement, with a lightweight retry mechanism for failed cases**. The retry mechanism automatically re-registers scans with optimized parameters if the initial attempt yields poor alignment quality (<30% alignment).
-5. Compute validation metrics: mean/median distance and percentage of calcium voxels within `10mm` of transformed centerlines.
-6. Save run metrics to `experiments/registration_comparison.csv` and `experiments/registration_comparison_summary.csv`, and documentation figures to `docs/images/`.
+```mermaid
+flowchart LR
+    A[Data & Ingestion] --> B[Transforms<br/>(HU, norm, resample, augment)]
+    B --> C[Registration<br/>rigid + affine]
+    C --> D[Evaluation<br/>proximity metrics]
+    D --> E[Segmentation Data Pipeline<br/>splits + loaders]
+    E --> F[Visualization & Scoring]
+```
+
+---
+
+## What This Prototype Demonstrates
+
+- **PrediCT Common Task – COCA preprocessing**
+  - HU windowing \[-200, 1000] HU
+  - z‑score normalization (per‑scan)
+  - resampling to 1.0 mm³ isotropic voxels
+  - optional ROI cropping
+  - MONAI training augmentations (affine, elastic, noise, gamma)
+
+- **PrediCT Project 3 Specific Task – Coronary atlas registration**
+  - ImageCAS CCTA atlas → NCCT (COCA) via SimpleITK
+  - Mattes Mutual Information, rigid + affine, multi‑resolution pyramid
+  - calcium–centerline distance metrics and % within 10 mm
+  - multi‑seed evaluation (seeds 42–66) with CSV + plots
+
+- **Segmentation‑oriented data pipeline (for main GSoC project)**
+  - 70/15/15 train/val/test split with seed 42  
+  - Agatston‑aware stratification when scores are available (with safe fallback)
+  - foreground‑biased patch sampler (positive patch prob. 0.8)
+  - MONAI `CacheDataset` + PyTorch `DataLoader` with patch‑based loading
+
+- **Reproducibility**
+  - YAML‑driven configs (`configs/`)
+  - CLI scripts (`scripts/`)
+  - notebooks for statistics and visualization (`notebooks/`)
+  - test suite (`pytest`) validating core components
+
+---
 
 ## Repository Layout
 
 ```text
-data/
-outputs/
-src/predict_cac/
-scripts/
-configs/
-notebooks/
-experiments/
-tests/
+data/                 # raw DICOM, NIfTI, masks, metadata
+outputs/              # registered atlas, vessel zones, plots, metrics
+src/predict_cac/      # main modular prototype package
+    data/             # ingestion & metadata
+    transforms/       # HU window, normalization, resampling, aug
+    datasets/         # COCA dataset, splits, patch sampler, loaders
+    registration/     # atlas registration + centerline transforms
+    evaluation/       # proximity metrics + visualization
+    scoring/          # Agatston scoring & lesion attribution
+scripts/              # CLI entry points (demo, preprocessing, registration, validation, training)
+configs/              # YAML configs for preprocessing, registration, segmentation
+notebooks/            # dataset statistics, registration & evaluation notebooks
+experiments/          # CSV metrics and summary tables
+docs/                 # documentation and saved figures
+tests/                # pytest unit tests
 ```
+
+---
 
 ## Environment Setup
 
-### 1) Create virtual environment
+> **Recommendation:** use a local virtual environment `.venv` for all commands.
+
+### 1) Create and activate `.venv`
 
 ```bash
 python -m venv .venv
 ```
 
-### 2) Activate virtual environment
-
 Windows PowerShell:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
-```
-
-Windows Command Prompt:
-
-```bat
-.venv\Scripts\activate.bat
 ```
 
 Linux/macOS:
@@ -81,7 +112,9 @@ Linux/macOS:
 source .venv/bin/activate
 ```
 
-### 3) Install dependencies
+### 2) Install dependencies
+
+Using `pip`:
 
 ```bash
 pip install -r requirements.txt
@@ -94,128 +127,248 @@ conda env create -f environment.yml
 conda activate predict-cac
 ```
 
-## Dataset Preparation
+---
 
-1. Place the COCA dataset DICOM folders under `data/raw/dicom/coca/`.
-2. Place ImageCAS coronary atlas resources under `data/atlas/imagecas/`.
-3. (Optional) Place calcium masks under `data/masks/` and transformed centerline masks under `outputs/centerlines_warped/` for validation.
-4. Update sample paths in:
-	- `configs/preprocessing.yaml`
-	- `configs/registration/*.yaml`
-	- `configs/segmentation.yaml`
+## Data Layout
 
-## Run the End-to-End Pipeline
-
-```bash
-python scripts/run_ingest.py
-python scripts/run_preprocessing.py
-python scripts/run_registration.py
-python scripts/run_validation.py
-```
-
-## Using Real Datasets (COCA + ImageCAS)
-
-Expected folder layout:
+For **real COCA + ImageCAS** processing, the expected layout is:
 
 ```text
 data/
-	raw/
-		dicom/
-			coca/
-	atlas/
-		imagecas/
+  raw/
+    dicom/
+      coca/             # COCA DICOM series (by patient)
+  atlas/
+    imagecas/           # ImageCAS atlas NIfTI + metadata
+  masks/                # (optional) calcium masks for evaluation
 ```
 
-Typical command sequence for real-scan processing:
+Synthetic demo data is written under:
+
+```text
+data/
+  preprocessed/         # standardized CT volumes (demo or real)
+  masks/                # demo calcium mask
+outputs/
+  centerlines_warped/   # transformed atlas centerline masks
+  vessel_zone_masks/    # ±10 mm vessel zones
+```
+
+Paths and options are controlled by:
+
+- `configs/preprocessing.yaml`
+- `configs/registration/*.yaml`
+- `configs/segmentation.yaml`
+
+---
+
+## Quickstart: Demo Pipeline (No COCA Access Needed)
+
+This mode generates synthetic CT, calcium mask, and centerlines so reviewers can run
+the **entire pipeline** without private data.
 
 ```bash
-python scripts/run_ingest.py
-python scripts/run_preprocessing.py
+# activate .venv first
+python scripts/generate_demo_data.py
+python scripts/run_preprocessing.py --config configs/preprocessing.yaml --max-scans 2
 python scripts/run_registration.py --config configs/registration/affine.yaml
 python scripts/run_validation.py --config configs/segmentation.yaml
 ```
 
-Update YAML paths in `configs/` to point to your real scan files, masks, and atlas-derived centerlines.
+Demo artifacts include:
 
-## Running the Demo Pipeline
-
-Use this mode when COCA data is not available. It generates synthetic CT volumes,
-calcium mask, and centerline mask so registration and validation produce real outputs.
-
-```bash
-python scripts/generate_demo_data.py
-python scripts/run_preprocessing.py
-python scripts/run_registration.py
-python scripts/run_validation.py
-```
-
-Expected demo artifacts:
 - `data/preprocessed/sample_fixed.nii.gz`
 - `data/preprocessed/sample_moving.nii.gz`
 - `data/masks/sample_calcium_mask.nii.gz`
 - `outputs/centerlines_warped/sample_centerline_mask.nii.gz`
-- `docs/images/within_10mm_by_seed.png`
-- `docs/images/mean_distance_by_seed.png`
-- `docs/images/runtime_by_seed.png`
 - `experiments/registration_comparison.csv`
 - `experiments/registration_comparison_summary.csv`
+- plots under `docs/images/`
 
-## Example Outputs
+---
 
-### Percent Within 10mm by Seed (42–66)
+## COCA + ImageCAS: Real‑Data Workflow
 
-![Percent within 10mm by seed](docs/images/within_10mm_by_seed.png)
-
-### Mean Distance by Seed (42–66)
-
-![Mean distance by seed](docs/images/mean_distance_by_seed.png)
-
-### Runtime by Seed (42–66)
-
-![Runtime by seed](docs/images/runtime_by_seed.png)
-
-## Latest Registration Results (Seeds 42–66)
-
-Metrics below are populated from `experiments/registration_comparison_summary.csv`.
-
-| Metric | Value |
-|---|---:|
-| Mean distance (mean across seeds) | 6.8625 mm |
-| Mean distance (median across seeds) | 6.5412 mm |
-| Percent within 10mm (mean) | 74.73% |
-| Percent within 10mm (median) | 74.31% |
-| Runtime per scan (mean) | 2.1988 sec |
-
-## Registration Accuracy and Stability
-
-We use a rigid initialization followed by affine refinement, with a lightweight retry mechanism for failed cases.
-
-Observed synthetic evaluation metrics remain stable across seed sweeps, with runtime and proximity metrics written to `experiments/registration_comparison.csv` and `experiments/registration_comparison_summary.csv`.
-
-| Registration Strategy | Runtime/scan (mean) | Mean Distance (mm, mean) | %Within10mm (mean) |
-|---|---:|---:|---:|
-| Rigid + Affine (`rigid_affine`) | 2.1988 | 6.8625 | 74.73 |
-
-The pipeline reports fresh per-seed metrics and an aggregate summary for this single strategy to track both alignment quality and runtime consistency.
-
-## Config-Driven Commands
-
-Preprocessing config: `configs/preprocessing.yaml`
-
-Registration configs:
-- `configs/registration/affine.yaml`
-
-Validation and segmentation config: `configs/segmentation.yaml`
-
-## Testing
+With COCA and ImageCAS available:
 
 ```bash
-pytest -q
+# 1. Ingest COCA DICOM → NIfTI + metadata
+python scripts/run_ingest.py
+
+# 2. Preprocess CT volumes (clip / normalize / resample / optional crop / augment)
+python scripts/run_preprocessing.py --config configs/preprocessing.yaml
+
+# 3. Register ImageCAS atlas (rigid + affine) to NCCT scans
+python scripts/run_registration.py --config configs/registration/affine.yaml
+
+# 4. Compute distance metrics and generate overlays + histograms
+python scripts/run_validation.py --config configs/segmentation.yaml
 ```
 
-## Notes on Reuse of Existing Code
+Adjust input/output paths in `configs/` to point to your COCA NIfTI files, atlas volumes,
+and (optionally) calcium masks.
 
-This implementation extends the existing repository and retains legacy scripts under `coca_project/src/`. The new `src/predict_cac/` package provides modular interfaces to standardize experiments while preserving prior work.
+---
 
-If real COCA data is present, ingestion and preprocessing continue to process those files
-normally. The synthetic generator only provides a fallback dataset for demonstrations.
+## Segmentation Data Pipeline
+
+The segmentation‑oriented pipeline is implemented but currently used for **pipeline
+validation**, not large‑scale model benchmarking yet.
+
+Key pieces:
+
+- **Preprocessing** (`configs/preprocessing.yaml`)
+  - `hu_min=-200`, `hu_max=1000`
+  - `normalization_mode=per_scan` (z‑score)
+  - `target_spacing=[1.0, 1.0, 1.0]`
+  - optional ROI cropping
+  - train‑only augmentations:
+    - affine (±15°, ±10 % scale)
+    - optional elastic deformation
+    - Gaussian noise
+    - random gamma
+
+- **Splits + loaders** (`configs/segmentation.yaml`, `src/predict_cac/datasets/`)
+  - 70/15/15 train/val/test split with `seed=42`
+  - Agatston‑aware stratification when score labels exist; safe random‑split fallback otherwise
+  - foreground‑biased patch sampler (`positive_patch_probability=0.8`)
+  - MONAI `CacheDataset` + PyTorch `DataLoader`, patch size e.g. `[64, 64, 32]`
+
+### Validate the Segmentation Pipeline
+
+```bash
+# activate .venv first
+python scripts/train_segmentation.py --config configs/segmentation.yaml
+```
+
+This script:
+
+- builds the splits and loaders,  
+- samples a few training batches, printing shapes and positive voxel fractions,  
+- runs a short 5‑epoch U‑Net training loop to confirm the data pipeline is sound.
+
+Example console summary:
+
+```json
+{
+  "status": "pipeline_validated",
+  "model_name": "unet",
+  "epochs": 5,
+  "split_counts": {"train": 2, "val": 0, "test": 0},
+  "patch_size": [64, 64, 32],
+  "positive_patch_probability": 0.8,
+  "note": "Data split, CacheDataset loading, patch sampling, and train-time augmentation validated."
+}
+```
+
+---
+
+## Registration Evaluation and Metrics
+
+Multi‑seed evaluation is run via:
+
+```bash
+# activate .venv first
+python scripts/run_registration_comparison.py --seed-start 42 --seed-end 66
+```
+
+This writes:
+
+- `experiments/registration_comparison.csv`  – per‑seed metrics  
+- `experiments/registration_comparison_summary.csv` – mean/median/std across seeds  
+
+### Example Plots (Seeds 42–66)
+
+These figures are committed under `docs/images/`:
+
+- **Percent within 10 mm by Seed**
+
+  ![Percent within 10mm by seed](docs/images/within_10mm_by_seed.png)
+
+- **Mean Distance by Seed**
+
+  ![Mean distance by seed](docs/images/mean_distance_by_seed.png)
+
+- **Runtime by Seed**
+
+  ![Runtime by seed](docs/images/runtime_by_seed.png)
+
+### Latest Summary (rigid + affine, seeds 42–66)
+
+From `experiments/registration_comparison_summary.csv`:
+
+| Metric                               | Value      |
+|--------------------------------------|-----------:|
+| Mean distance (mean across seeds)    | 6.86 mm    |
+| Mean distance (median across seeds)  | 6.54 mm    |
+| Percent within 10 mm (mean)          | 74.73 %    |
+| Percent within 10 mm (median)        | 74.31 %    |
+| Runtime per scan (mean)              | 1.98 s     |
+| Runtime per scan (median)            | 1.78 s     |
+
+### Strategy Overview
+
+Only one strategy is currently evaluated:
+
+| Registration Strategy        | Runtime/scan (mean) | Mean Distance (mm) | % Within 10 mm |
+|-----------------------------|---------------------:|--------------------:|---------------:|
+| Rigid + Affine (`rigid_affine`) | 1.98 s             | 6.86 mm            | 74.73 %        |
+
+The registration pipeline uses **rigid initialization followed by affine refinement**,
+with a lightweight retry mechanism for outlier seeds. Metrics are logged per seed and
+in aggregate, so the accuracy–runtime trade‑off is fully transparent.
+
+---
+
+## Dataset Statistics Notebook
+
+`notebooks/dataset_statistics.ipynb` reads `data/metadata.csv` and produces:
+
+- spacing distribution plots  
+- volume size distribution plots  
+- a summary of calcium voxel fraction (class imbalance)  
+
+The executed notebook and summary CSV are saved to:
+
+- `notebooks/dataset_statistics.executed.ipynb`  
+- `experiments/dataset_statistics_summary.csv`  
+- figures under `docs/images/`
+
+Run it non‑interactively:
+
+```bash
+# activate .venv first
+python -m jupyter nbconvert \
+  --to notebook \
+  --execute notebooks/dataset_statistics.ipynb \
+  --output dataset_statistics.executed.ipynb \
+  --output-dir notebooks
+```
+
+---
+
+## Running Tests
+
+The test suite validates preprocessing, datasets, registration, and metrics:
+
+```bash
+# activate .venv first
+python -m pytest -q
+```
+
+You should see all tests passing (e.g., `19 passed`).
+
+---
+
+## Notes on Upstream Code and Future Work
+
+- This branch **extends** the existing PrediCT repository; legacy COCA code is kept
+  under original paths for compatibility.
+- The new `src/predict_cac/` package offers a standardized, config‑driven interface for
+  future segmentation models and experiments.
+- Planned next steps:
+  - implement and benchmark multiple CAC segmentation architectures (2.5D U‑Net, U‑Net + vessel prior, Swin‑UNETR, nnU‑Net baseline),
+  - integrate anatomical lesion attribution and Agatston scoring into the evaluation loop,
+  - expand experiments from synthetic/demo mode to real COCA cohorts where access permits.
+
+For the exact technical notes, see the evaluation summary in `docs/evaluation.md`.

@@ -38,23 +38,39 @@ def run_preprocessing_pipeline(
     input_nifti_dir: Path,
     output_dir: Path,
     target_spacing: tuple[float, float, float] = (1.0, 1.0, 1.0),
+    hu_min: float = -200.0,
+    hu_max: float = 1000.0,
+    normalization_mode: str = "per_scan",
+    roi_margin: int = 8,
     augment_fn: Callable[[np.ndarray], np.ndarray] | None = None,
+    apply_augmentation: bool = False,
+    max_scans: int | None = None,
 ) -> list[Path]:
-    """Run HU clipping, z-score, isotropic resampling, ROI crop, and optional augmentation."""
+    """Run HU clipping, z-score, isotropic resampling, ROI crop, and optional augmentation.
+
+    Normalization currently supports ``per_scan`` z-score normalization.
+    Augmentation is applied only when ``apply_augmentation=True``.
+    """
+    if normalization_mode != "per_scan":
+        raise ValueError("Only normalization_mode='per_scan' is currently supported.")
+
     ensure_dir(output_dir)
     outputs: list[Path] = []
 
-    for nifti_path in sorted(input_nifti_dir.glob('*.nii.gz')):
+    for index, nifti_path in enumerate(sorted(input_nifti_dir.glob('*.nii.gz'))):
+        if max_scans is not None and index >= int(max_scans):
+            break
+
         volume, spacing = _load_volume(nifti_path)
-        volume = clip_hu(volume, -200.0, 1000.0)
+        volume = clip_hu(volume, hu_min=float(hu_min), hu_max=float(hu_max))
         volume = zscore_normalize(volume)
 
         sitk_img = numpy_to_sitk(volume, spacing=spacing)
         sitk_resampled = resample_to_spacing(sitk_img, target_spacing=target_spacing, is_mask=False)
         volume = sitk_to_numpy(sitk_resampled)
 
-        volume = crop_to_nonzero_bbox(volume, margin=8)
-        if augment_fn is not None:
+        volume = crop_to_nonzero_bbox(volume, margin=int(roi_margin))
+        if apply_augmentation and augment_fn is not None:
             volume = augment_fn(volume)
 
         out_path = output_dir / nifti_path.name
