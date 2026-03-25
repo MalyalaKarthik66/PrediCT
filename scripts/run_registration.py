@@ -16,16 +16,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from predict_cac.registration.atlas_registration import normalize_strategy, run_registration
-
-
-def _resolve_strategy(cfg: dict[str, object]) -> str:
-    strategy_value = cfg.get("strategy")
-    if strategy_value is not None:
-        return normalize_strategy(str(strategy_value))
-
-    stage = str(cfg.get("stage", "affine"))
-    return normalize_strategy(stage)
+from predict_cac.registration.atlas_registration import run_registration
 
 
 def main() -> None:
@@ -36,7 +27,7 @@ def main() -> None:
     cfg = yaml.safe_load(args.config.read_text(encoding="utf-8"))
     seed = int(cfg.get("seed", 42))
     np.random.seed(seed)
-    strategy = _resolve_strategy(cfg)
+    strategy = "rigid_affine"
     moving_path = ROOT / cfg["moving_image"]
     fixed_path = ROOT / cfg["fixed_image"]
     out_dir = ROOT / cfg.get("output_dir", "outputs/registered_atlas")

@@ -25,18 +25,22 @@ from predict_cac.utils.synthetic_data import generate_synthetic_demo_data
 
 
 def _summary_dataframe(results_df: pd.DataFrame) -> pd.DataFrame:
-    grouped = results_df.groupby("strategy", as_index=False).agg(
-        mean_distance_mm_mean=("mean_distance_mm", "mean"),
-        mean_distance_mm_median=("mean_distance_mm", "median"),
-        mean_distance_mm_std=("mean_distance_mm", "std"),
-        percent_within_10mm_mean=("percent_within_10mm", "mean"),
-        percent_within_10mm_median=("percent_within_10mm", "median"),
-        percent_within_10mm_std=("percent_within_10mm", "std"),
-        runtime_sec_mean=("runtime_sec", "mean"),
-        runtime_sec_median=("runtime_sec", "median"),
-        runtime_sec_std=("runtime_sec", "std"),
-    )
-    return grouped.sort_values("strategy").reset_index(drop=True)
+    valid_mean_distance = results_df["mean_distance_mm"].dropna()
+    valid_within_10mm = results_df["percent_within_10mm"].dropna()
+
+    summary_row = {
+        "strategy": "rigid_affine",
+        "mean_distance_mm_mean": float(valid_mean_distance.mean()) if not valid_mean_distance.empty else float("nan"),
+        "mean_distance_mm_median": float(valid_mean_distance.median()) if not valid_mean_distance.empty else float("nan"),
+        "mean_distance_mm_std": float(valid_mean_distance.std()) if not valid_mean_distance.empty else float("nan"),
+        "percent_within_10mm_mean": float(valid_within_10mm.mean()) if not valid_within_10mm.empty else float("nan"),
+        "percent_within_10mm_median": float(valid_within_10mm.median()) if not valid_within_10mm.empty else float("nan"),
+        "percent_within_10mm_std": float(valid_within_10mm.std()) if not valid_within_10mm.empty else float("nan"),
+        "runtime_sec_mean": float(results_df["runtime_sec"].mean()),
+        "runtime_sec_median": float(results_df["runtime_sec"].median()),
+        "runtime_sec_std": float(results_df["runtime_sec"].std()),
+    }
+    return pd.DataFrame([summary_row])
 
 
 def _format_console_table(summary_df: pd.DataFrame) -> str:
@@ -57,40 +61,6 @@ def _format_console_table(summary_df: pd.DataFrame) -> str:
         }
     )
     return display.to_string(index=False)
-
-
-def _extract_points_physical(mask_path: Path) -> tuple[np.ndarray, sitk.Image]:
-    mask_image = sitk.ReadImage(str(mask_path))
-    array_zyx = sitk.GetArrayFromImage(mask_image)
-    indices_zyx = np.argwhere(array_zyx > 0)
-    points: list[tuple[float, float, float]] = []
-    for z, y, x in indices_zyx:
-        points.append(mask_image.TransformIndexToPhysicalPoint((int(x), int(y), int(z))))
-    return np.asarray(points, dtype=np.float64), mask_image
-
-
-def _print_image_geometry(label: str, image: sitk.Image) -> None:
-    print(
-        f"[GEOM] {label} spacing={tuple(float(v) for v in image.GetSpacing())} "
-        f"origin={tuple(float(v) for v in image.GetOrigin())} "
-        f"direction={tuple(float(v) for v in image.GetDirection())} "
-        f"size={tuple(int(v) for v in image.GetSize())}"
-    )
-
-
-def _count_points_in_bounds(points_physical: np.ndarray, reference_image: sitk.Image) -> int:
-    if len(points_physical) == 0:
-        return 0
-    size = reference_image.GetSize()
-    valid = 0
-    for point in points_physical:
-        try:
-            x, y, z = reference_image.TransformPhysicalPointToIndex(tuple(float(v) for v in point))
-        except RuntimeError:
-            continue
-        if 0 <= x < size[0] and 0 <= y < size[1] and 0 <= z < size[2]:
-            valid += 1
-    return valid
 
 
 def _transform_signature(transform_path: str | None) -> str:
@@ -135,6 +105,71 @@ def _resample_centerline_mask(
     return out_path, point_count
 
 
+def _run_rigid_affine_attempt(
+    seed: int,
+    moving_preprocessed: Path,
+    fixed_preprocessed: Path,
+    output_dir: Path,
+    fixed_centerline_image: sitk.Image,
+    moving_centerline_mask_path: Path,
+    transformed_mask_path: Path,
+    calcium_mask_path: Path,
+    threshold_mm: float,
+    levels: int,
+    iterations: list[int],
+    shrink_factors: list[int],
+    smoothing_sigmas: list[float],
+) -> dict[str, float | str]:
+    start = time.perf_counter()
+    reg_result = run_registration(
+        moving_image_path=moving_preprocessed,
+        fixed_image_path=fixed_preprocessed,
+        out_dir=output_dir,
+        strategy="rigid_affine",
+        levels=levels,
+        iterations=iterations,
+        shrink_factors=shrink_factors,
+        smoothing_sigmas=smoothing_sigmas,
+        seed=seed,
+    )
+    runtime_sec = float(time.perf_counter() - start)
+
+    affine_path = reg_result.get("affine_transform")
+    if affine_path is None:
+        raise RuntimeError(f"Affine transform missing for seed {seed}.")
+
+    composite_tx = _compose_rigid_affine_transform(
+        rigid_transform_path=str(reg_result["rigid_transform"]),
+        affine_transform_path=str(affine_path),
+    )
+    transformed_mask_path, transformed_count = _resample_centerline_mask(
+        moving_centerline_mask_path=moving_centerline_mask_path,
+        fixed_reference_image=fixed_centerline_image,
+        moving_to_fixed_transform=composite_tx,
+        out_path=transformed_mask_path,
+    )
+
+    if transformed_count == 0:
+        mean_distance_mm = float("nan")
+        percent_within_10mm = float("nan")
+    else:
+        eval_result = evaluate_registration(
+            calcium_mask_path=calcium_mask_path,
+            centerline_mask_path=transformed_mask_path,
+            threshold_mm=threshold_mm,
+        )
+        mean_distance_mm = float(eval_result["mean_distance_mm"])
+        percent_within_10mm = float(eval_result["percent_within_10mm"])
+
+    return {
+        "rigid_transform": str(reg_result["rigid_transform"]),
+        "affine_transform": str(affine_path),
+        "mean_distance_mm": mean_distance_mm,
+        "percent_within_10mm": percent_within_10mm,
+        "runtime_sec": runtime_sec,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run rigid+affine registration comparison")
     parser.add_argument("--seed-start", type=int, default=42)
@@ -173,6 +208,13 @@ def main() -> None:
     fixed_centerline_mask_path = ROOT / "outputs" / "centerlines_warped" / "sample_centerline_mask.nii.gz"
     moving_centerline_mask_path = ROOT / "outputs" / "centerlines_warped" / "sample_centerline_mask_moving.nii.gz"
     transformed_centerline_root = ROOT / "outputs" / "centerlines_warped" / "comparison_debug"
+    levels = int(reg_cfg.get("levels", 3))
+    base_iterations = [int(v) for v in reg_cfg.get("iterations", [1000, 500, 200])]
+    base_shrink_factors = [int(v) for v in reg_cfg.get("shrink_factors", [4, 2, 1])]
+    base_smoothing_sigmas = [float(v) for v in reg_cfg.get("smoothing_sigmas", [2, 1, 0])]
+    retry_iterations = [1200, 700, 300]
+    retry_smoothing_sigmas = [1.5, 0.5, 0.0]
+    retry_threshold_percent = 30.0
 
     rows: list[dict[str, float | int | str]] = []
 
@@ -188,200 +230,71 @@ def main() -> None:
         if not fixed_preprocessed.exists() or not moving_preprocessed.exists():
             raise FileNotFoundError("Preprocessed moving/fixed images are missing after preprocessing stage.")
 
-        fixed_pre_img = sitk.ReadImage(str(fixed_preprocessed))
-        moving_pre_img = sitk.ReadImage(str(moving_preprocessed))
-        fixed_center_img = sitk.ReadImage(str(fixed_centerline_mask_path))
-        moving_center_img = sitk.ReadImage(str(moving_centerline_mask_path))
-        print(f"\n[DEBUG] Seed={seed} coordinate system inspection")
-        _print_image_geometry("fixed_preprocessed", fixed_pre_img)
-        _print_image_geometry("moving_preprocessed", moving_pre_img)
-        _print_image_geometry("fixed_centerline_mask", fixed_center_img)
-        _print_image_geometry("moving_centerline_mask", moving_center_img)
+        fixed_centerline_image = sitk.ReadImage(str(fixed_centerline_mask_path))
 
-        moving_centerline_points, _ = _extract_points_physical(moving_centerline_mask_path)
-        fixed_centerline_points, fixed_centerline_image = _extract_points_physical(fixed_centerline_mask_path)
-
-        print(f"\n[SEED={seed}] Starting registration pipeline...")
-        print(f"[SEED={seed}] Moving centerline points: {len(moving_centerline_points)}")
-        print(f"[SEED={seed}] Fixed centerline points: {len(fixed_centerline_points)}")
-
-        # ========== TRY RIGID+AFFINE FIRST ==========
-        print(f"\n[SEED={seed}] === PHASE 1: Rigid+Affine Registration ===")
         strategy_reg_dir = output_reg_dir / f"seed_{seed}" / "rigid_affine"
-        start = time.perf_counter()
-        reg_result = run_registration(
-            moving_image_path=moving_preprocessed,
-            fixed_image_path=fixed_preprocessed,
-            out_dir=strategy_reg_dir,
-            strategy="rigid_affine",
-            levels=int(reg_cfg.get("levels", 3)),
-            iterations=[int(v) for v in reg_cfg.get("iterations", [1000, 500, 200])],
-            shrink_factors=[int(v) for v in reg_cfg.get("shrink_factors", [4, 2, 1])],
-            smoothing_sigmas=[float(v) for v in reg_cfg.get("smoothing_sigmas", [2, 1, 0])],
-            seed=seed,
-        )
-        rigid_affine_runtime = float(time.perf_counter() - start)
-
-        print(f"[SEED={seed}] rigid_transform: {_transform_signature(reg_result.get('rigid_transform'))}")
-        print(f"[SEED={seed}] affine_transform: {_transform_signature(reg_result.get('affine_transform'))}")
-
-        affine_path = reg_result.get("affine_transform")
-        if affine_path is None:
-            raise RuntimeError(f"Affine transform missing for seed {seed}.")
-
-        composite_tx = _compose_rigid_affine_transform(
-            rigid_transform_path=str(reg_result["rigid_transform"]),
-            affine_transform_path=str(affine_path),
-        )
-
-        transformed_points = np.asarray(
-            [composite_tx.TransformPoint(tuple(float(v) for v in point)) for point in moving_centerline_points],
-            dtype=np.float64,
-        )
-        in_bounds = _count_points_in_bounds(transformed_points, fixed_centerline_image)
-        print(f"[SEED={seed}] Transformed points in bounds: {in_bounds}/{len(transformed_points)}")
-
         transformed_mask_path = transformed_centerline_root / f"seed_{seed}" / "rigid_affine_centerline_mask.nii.gz"
-        transformed_mask_path, transformed_count = _resample_centerline_mask(
+        best_attempt = _run_rigid_affine_attempt(
+            seed=seed,
+            moving_preprocessed=moving_preprocessed,
+            fixed_preprocessed=fixed_preprocessed,
+            output_dir=strategy_reg_dir,
+            fixed_centerline_image=fixed_centerline_image,
             moving_centerline_mask_path=moving_centerline_mask_path,
-            fixed_reference_image=fixed_centerline_image,
-            moving_to_fixed_transform=composite_tx,
-            out_path=transformed_mask_path,
+            transformed_mask_path=transformed_mask_path,
+            calcium_mask_path=calcium_mask_path,
+            threshold_mm=float(args.threshold_mm),
+            levels=levels,
+            iterations=base_iterations,
+            shrink_factors=base_shrink_factors,
+            smoothing_sigmas=base_smoothing_sigmas,
         )
-        print(f"[SEED={seed}] Resampled centerline points in mask: {transformed_count}")
 
-        # Initialize default values
-        affine_mean_dist = 999.0
-        affine_within_10mm = 0.0
-        use_rigid_fallback = False
-
-        if transformed_count == 0:
-            print(f"[SEED={seed}] WARNING: Empty transformed centerline mask with rigid_affine!")
-            print(f"[SEED={seed}] Will fall back to rigid-only registration.")
-            use_rigid_fallback = True
-        else:
-            transformed_mask_points, _ = _extract_points_physical(transformed_mask_path)
-            sample_count = min(5, len(transformed_mask_points))
-            print(f"[SEED={seed}] Transformed centerline points: {len(transformed_mask_points)}")
-            print(f"[SEED={seed}] Sample transformed points: {transformed_mask_points[:sample_count].tolist()}")
-
-            eval_result = evaluate_registration(
-                calcium_mask_path=calcium_mask_path,
-                centerline_mask_path=transformed_mask_path,
-                threshold_mm=float(args.threshold_mm),
-            )
-            affine_mean_dist = float(eval_result["mean_distance_mm"])
-            affine_within_10mm = float(eval_result["percent_within_10mm"])
-            print(
-                f"[SEED={seed}] rigid_affine metric: "
-                f"mean_distance_mm={affine_mean_dist:.6f} "
-                f"percent_within_10mm={affine_within_10mm:.6f}"
-            )
-
-            # Check for poor registration indicators
-            if affine_within_10mm < 30.0:
-                print(f"[SEED={seed}] ALERT: Low within_10mm ({affine_within_10mm:.2f}%) - potential affine failure")
-                use_rigid_fallback = True
-            elif affine_mean_dist > 15.0:
-                print(f"[SEED={seed}] ALERT: High mean distance ({affine_mean_dist:.2f}mm) - potential affine failure")
-                use_rigid_fallback = True
-
-        # ========== IF AFFINE SUSPICIOUS, TRY RIGID-ONLY ==========
-        if use_rigid_fallback:
-            print(f"\n[SEED={seed}] === PHASE 2: Fallback to Rigid-Only Registration ===")
-            rigid_reg_dir = output_reg_dir / f"seed_{seed}" / "rigid_only"
-            start = time.perf_counter()
-            rigid_result = run_registration(
-                moving_image_path=moving_preprocessed,
-                fixed_image_path=fixed_preprocessed,
-                out_dir=rigid_reg_dir,
-                strategy="rigid",
-                levels=int(reg_cfg.get("levels", 3)),
-                iterations=[int(v) for v in reg_cfg.get("iterations", [1000, 500, 200])],
-                shrink_factors=[int(v) for v in reg_cfg.get("shrink_factors", [4, 2, 1])],
-                smoothing_sigmas=[float(v) for v in reg_cfg.get("smoothing_sigmas", [2, 1, 0])],
+        base_percent = float(best_attempt["percent_within_10mm"])
+        if np.isnan(base_percent) or base_percent < retry_threshold_percent:
+            retry_output_dir = output_reg_dir / f"seed_{seed}" / "rigid_affine_retry"
+            retry_mask_path = transformed_centerline_root / f"seed_{seed}" / "rigid_affine_retry_centerline_mask.nii.gz"
+            retry_attempt = _run_rigid_affine_attempt(
                 seed=seed,
-            )
-            rigid_runtime = float(time.perf_counter() - start)
-
-            rigid_tx = sitk.ReadTransform(str(rigid_result["rigid_transform"]))
-            rigid_transformed_points = np.asarray(
-                [rigid_tx.TransformPoint(tuple(float(v) for v in point)) for point in moving_centerline_points],
-                dtype=np.float64,
-            )
-            rigid_in_bounds = _count_points_in_bounds(rigid_transformed_points, fixed_centerline_image)
-            print(f"[SEED={seed}] Rigid: transformed points in bounds: {rigid_in_bounds}/{len(rigid_transformed_points)}")
-
-            rigid_transformed_mask_path = transformed_centerline_root / f"seed_{seed}" / "rigid_only_centerline_mask.nii.gz"
-            rigid_transformed_mask_path, rigid_transformed_count = _resample_centerline_mask(
+                moving_preprocessed=moving_preprocessed,
+                fixed_preprocessed=fixed_preprocessed,
+                output_dir=retry_output_dir,
+                fixed_centerline_image=fixed_centerline_image,
                 moving_centerline_mask_path=moving_centerline_mask_path,
-                fixed_reference_image=fixed_centerline_image,
-                moving_to_fixed_transform=rigid_tx,
-                out_path=rigid_transformed_mask_path,
+                transformed_mask_path=retry_mask_path,
+                calcium_mask_path=calcium_mask_path,
+                threshold_mm=float(args.threshold_mm),
+                levels=levels,
+                iterations=retry_iterations,
+                shrink_factors=base_shrink_factors,
+                smoothing_sigmas=retry_smoothing_sigmas,
             )
-            print(f"[SEED={seed}] Rigid: resampled centerline points: {rigid_transformed_count}")
+            retry_percent = float(retry_attempt["percent_within_10mm"])
+            if (np.isnan(base_percent) and not np.isnan(retry_percent)) or (
+                not np.isnan(retry_percent) and retry_percent > base_percent
+            ):
+                best_attempt = retry_attempt
 
-            if rigid_transformed_count > 0:
-                rigid_eval_result = evaluate_registration(
-                    calcium_mask_path=calcium_mask_path,
-                    centerline_mask_path=rigid_transformed_mask_path,
-                    threshold_mm=float(args.threshold_mm),
-                )
-                rigid_mean_dist = float(rigid_eval_result["mean_distance_mm"])
-                rigid_within_10mm = float(rigid_eval_result["percent_within_10mm"])
-                print(
-                    f"[SEED={seed}] rigid metric: "
-                    f"mean_distance_mm={rigid_mean_dist:.6f} "
-                    f"percent_within_10mm={rigid_within_10mm:.6f}"
-                )
+        print(f"[SEED={seed}] rigid_transform: {_transform_signature(str(best_attempt['rigid_transform']))}")
+        print(f"[SEED={seed}] affine_transform: {_transform_signature(str(best_attempt['affine_transform']))}")
 
-                # Compare and choose best strategy
-                if use_rigid_fallback and rigid_within_10mm > affine_within_10mm:
-                    print(f"\n[SEED={seed}] DECISION: Using rigid-only (better than affine)")
-                    final_result = {
-                        "strategy": "rigid",
-                        "seed": int(seed),
-                        "mean_distance_mm": rigid_mean_dist,
-                        "percent_within_10mm": rigid_within_10mm,
-                        "runtime_sec": rigid_runtime,
-                    }
-                    fallback_used = True
-                else:
-                    print(f"\n[SEED={seed}] DECISION: Using rigid_affine despite concerns")
-                    final_result = {
-                        "strategy": "rigid_affine",
-                        "seed": int(seed),
-                        "mean_distance_mm": affine_mean_dist,
-                        "percent_within_10mm": affine_within_10mm,
-                        "runtime_sec": rigid_affine_runtime,
-                    }
-                    fallback_used = False
-            else:
-                print(f"[SEED={seed}] Rigid also failed (empty mask). Using affine with warning.")
-                final_result = {
-                    "strategy": "rigid_affine",
-                    "seed": int(seed),
-                    "mean_distance_mm": affine_mean_dist,
-                    "percent_within_10mm": affine_within_10mm,
-                    "runtime_sec": rigid_affine_runtime,
-                }
-                fallback_used = False
-        else:
-            print(f"\n[SEED={seed}] DECISION: rigid_affine metrics acceptable - using result")
-            final_result = {
-                "strategy": "rigid_affine",
-                "seed": int(seed),
-                "mean_distance_mm": affine_mean_dist,
-                "percent_within_10mm": affine_within_10mm,
-                "runtime_sec": rigid_affine_runtime,
-            }
-            fallback_used = False
+        final_result = {
+            "strategy": "rigid_affine",
+            "seed": int(seed),
+            "mean_distance_mm": float(best_attempt["mean_distance_mm"]),
+            "percent_within_10mm": float(best_attempt["percent_within_10mm"]),
+            "runtime_sec": float(best_attempt["runtime_sec"]),
+        }
+        print(
+            f"[SEED={seed}] rigid_affine metric: "
+            f"mean_distance_mm={final_result['mean_distance_mm']:.6f} "
+            f"percent_within_10mm={final_result['percent_within_10mm']:.6f}"
+        )
 
-        print(f"[SEED={seed}] Final metrics: {final_result}")
         rows.append(final_result)
 
     results_df = pd.DataFrame(rows, columns=["strategy", "seed", "mean_distance_mm", "percent_within_10mm", "runtime_sec"])
-    results_df = results_df.sort_values(["strategy", "seed"]).reset_index(drop=True)
+    results_df = results_df.sort_values(["seed"]).reset_index(drop=True)
 
     ensure_dir(args.output_csv.parent)
     results_df.to_csv(args.output_csv, index=False)
@@ -390,7 +303,7 @@ def main() -> None:
     ensure_dir(args.summary_csv.parent)
     summary_df.to_csv(args.summary_csv, index=False)
 
-    print("\n=== Registration Strategy Comparison Summary ===")
+    print("\n=== Registration Summary (rigid_affine) ===")
     print(_format_console_table(summary_df))
 
     print(f"\nSaved per-run results to: {args.output_csv}")
