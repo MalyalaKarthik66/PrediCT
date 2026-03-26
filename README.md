@@ -18,12 +18,12 @@ Repository: `MalyalaKarthik66/PrediCT` → branch `gsoc-predict-cac-prototype`.
 
 ```mermaid
 flowchart LR
-    A["DICOM (COCA)"] --> B["NIfTI conversion"]
-    B --> C["Preprocessing"]
-    C --> D["Atlas Registration"]
-    D --> E["Centerline Transform"]
-    E --> F["Distance Metrics"]
-    F --> G["Visualization"]
+    A["DICOM (COCA)"] --> B["NIfTI Conversion"]
+    B --> C["Preprocessing (clip / normalize / resample / augment)"]
+    C --> D["Atlas Registration (rigid + affine)"]
+    D --> E["Centerline Transform + Vessel Zones"]
+    E --> F["Distance Metrics (KD-tree)"]
+    F --> G["Visualization (plots + overlays)"]
 ```
 
 **Pipeline Steps:**
