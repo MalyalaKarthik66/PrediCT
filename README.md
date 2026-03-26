@@ -18,24 +18,39 @@ Repository: `MalyalaKarthik66/PrediCT` → branch `gsoc-predict-cac-prototype`.
 
 ```mermaid
 flowchart LR
-    A[DICOM (COCA)] --> B[NIfTI conversion]
-    B --> C[Preprocessing<br/>clip / normalize / resample / augment]
-    C --> D[Atlas Registration<br/>ImageCAS → NCCT]
-    D --> E[Centerline Transform<br/>+ Vessel Zones]
-    E --> F[Distance Metrics<br/>KD-tree]
-    F --> G[Visualization<br/>plots + overlays]
+    A["DICOM (COCA)"] --> B["NIfTI conversion"]
+    B --> C["Preprocessing"]
+    C --> D["Atlas Registration"]
+    D --> E["Centerline Transform"]
+    E --> F["Distance Metrics"]
+    F --> G["Visualization"]
 ```
+
+**Pipeline Steps:**
+- C: clip/normalize/resample/augment
+- D: rigid + affine registration
+- E: transform vessel zones
+- F: KD-tree metrics
+- G: plots + overlays
 
 ### Package Architecture
 
 ```mermaid
 flowchart LR
-    A[Data & Ingestion] --> B[Transforms<br/>(HU, norm, resample, augment)]
-    B --> C[Registration<br/>rigid + affine]
-    C --> D[Evaluation<br/>proximity metrics]
-    D --> E[Segmentation Data Pipeline<br/>splits + loaders]
-    E --> F[Visualization & Scoring]
+    A["Data & Ingestion"] --> B["Transforms"]
+    B --> C["Registration"]
+    C --> D["Evaluation"]
+    D --> E["Segmentation"]
+    E --> F["Visualization"]
 ```
+
+**Components:**
+- A: raw DICOM, metadata
+- B: HU window, normalize, resample, augment
+- C: rigid + affine alignment
+- D: proximity metrics
+- E: splits, patch sampling, loaders
+- F: plots, Agatston scoring
 
 ---
 
