@@ -1,0 +1,56 @@
+data:
+  image_dir: "data/coca_ct"
+  label_dir: "outputs/labels"
+  spacing: [2.5, 2.5, 2.5]
+  hu_min: -200
+  hu_max: 600
+  train_frac: 0.60
+  val_frac: 0.15
+  test_frac: 0.25
+
+model:
+  spatial_dims: 3
+  in_channels: 1
+  out_channels: 2
+  channels: [16, 32, 64, 128]
+  strides: [2, 2, 2]
+  num_res_units: 2
+  dropout: 0.1
+
+training:
+  epochs: 40
+  lr: 0.0001
+  batch_size: 1
+  seed: 42
+  mixed_precision: true
+  early_stopping_patience: 15
+  roi_size: [80, 80, 80]
+
+totalsegmentator:
+  task: "heartchambers_highres"
+  version: "2.x"
+  labels_merged:
+    - heart_myocardium
+    - atrium_left
+    - atrium_right
+    - ventricle_left
+    - ventricle_right
+    - aorta
+    - pulmonary_artery
+
+label_qc:
+  volume_min_mL: 50
+  volume_max_mL: 600
+
+benchmark:
+  gpu_name: "fill in your GPU"
+  batch_size: 1
+  n_warmup_runs: 2
+  timing_scope: "model_only_and_full_pipeline"
+
+outputs:
+  checkpoint_dir: "outputs/checkpoints"
+  metrics_dir: "outputs/metrics"
+  figures_dir: "outputs/figures"
+  labels_dir: "outputs/labels"
+  label_qc_dir: "outputs/label_qc"

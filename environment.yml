@@ -1,0 +1,30 @@
+name: predict-cac-env
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - pytorch
+  - torchvision
+  - torchaudio
+  - cudatoolkit=12.1
+  - numpy
+  - pandas
+  - matplotlib
+  - scipy
+  - scikit-image
+  - seaborn
+  - simpleitk
+  - pydicom
+  - pip:
+      - monai[all]
+      - nibabel
+      - TotalSegmentator
+      - pyyaml
+      - tqdm
+      - click
+      - jupyter
+      - notebook
+      - ipykernel

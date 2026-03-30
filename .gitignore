@@ -1,0 +1,26 @@
+# Virtual environment
+.venv/
+
+# Python cache and artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pth
+
+# Packaging
+*.egg-info/
+*.egg
+build/
+dist/
+
+# Data and generated outputs
+data/
+outputs/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# IDE/editor files
+.vscode/
+.DS_Store
