@@ -92,7 +92,7 @@ Augmentation includes random left-right flips, small rotations, Gaussian noise, 
 | Heart voxels min / max | 0.78% / 6.25% |
 
 ## Deliverables
-- Model weights: [Upload best_model.pth to Google Drive and paste link here]
+- Model weights: [best_model.pth (Google Drive)](https://drive.google.com/file/d/1avlC-tDXG1MKHCcjoF0ahYTM3MYrxmRN/view?usp=sharing)
 - Per-case metrics: outputs/metrics/per_case_metrics.csv
 - Benchmark results: outputs/metrics/benchmark_results.csv
 
