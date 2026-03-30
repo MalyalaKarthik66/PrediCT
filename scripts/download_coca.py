@@ -6,17 +6,15 @@ Usage (defaults: 5 scans to data/coca_ct):
 from __future__ import annotations
 
 import argparse
+import os
 import pathlib
 import tempfile
 from typing import Iterable, List
 
+from dotenv import load_dotenv
+
 from azure.storage.blob import ContainerClient
 from tqdm import tqdm
-
-SAS_URL = (
-    "https://aimistanforddatasets01.blob.core.windows.net/"
-    "cocacoronarycalciumandchestcts-2?sv=2019-02-02&sr=c&sig=YmFjX5PbybMXXEHQjpzSrpW5bwRhwiLrBRT1FcmmbuM%3D&st=2026-03-27T08%3A52%3A48Z&se=2026-04-26T08%3A57%3A48Z&sp=rl"
-)
 
 
 def _human_size(num_bytes: int) -> str:
@@ -86,8 +84,13 @@ def main() -> None:
     parser.add_argument("--max_scans", type=int, default=5)
     args = parser.parse_args()
 
+    load_dotenv()
+    sas_url = os.getenv("COCA_SAS_URL", "")
+    if not sas_url:
+        raise SystemExit("COCA_SAS_URL not set. Add it to your .env file.")
+
     print("Connecting to Azure container...")
-    container = ContainerClient.from_container_url(SAS_URL)
+    container = ContainerClient.from_container_url(sas_url)
     print("Listing blobs...")
     blob_names = list(_ordered_blob_names(container, max_needed=args.max_scans * 10))
     if not blob_names:

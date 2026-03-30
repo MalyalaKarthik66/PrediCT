@@ -1,6 +1,9 @@
 # Virtual environment
 .venv/
 
+# Environment secrets
+.env
+
 # Python cache and artifacts
 __pycache__/
 *.pyc

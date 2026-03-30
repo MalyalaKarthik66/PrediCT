@@ -48,7 +48,7 @@ def run_totalsegmentator(ct_path: pathlib.Path, output_dir: pathlib.Path, task: 
         license_number,
         "--quiet",
     ]
-    subprocess.run(cmd, check=True)
+    subprocess.run(cmd, check=True, stderr=subprocess.DEVNULL)
 
 
 def main() -> None:
